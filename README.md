@@ -30,11 +30,15 @@ RescueRoute/
 ├── app.py
 ├── requirements.txt
 ├── README.md
+├── .gitignore
 ├── rescue_route/
 │   ├── __init__.py
 │   ├── agents.py
 │   ├── data.py
 │   └── optimizer.py
+├── sample_data/
+│   ├── donations_sample.csv
+│   └── recipients_sample.csv
 └── tests/
     └── test_workflow.py
 ```
