@@ -1,4 +1,4 @@
-"""Synthetic, reproducible data for the RescueRoute proof of concept."""
+"""Synthetic, reproducible data for the NourishFlow proof of concept."""
 from __future__ import annotations
 
 import pandas as pd
@@ -45,5 +45,7 @@ def demo_scenario(name: str) -> tuple[pd.DataFrame, pd.DataFrame, str]:
     elif name == "Invalid input":
         donations = donations.drop(columns=["quantity_kg"])
         note = "The required quantity_kg column is deliberately removed. Intake validation should reject this input."
+    elif name == "Vehicle breakdown / replan":
+        note = "The allocation data stays at baseline; after an initial route plan, the busiest vehicle is marked unavailable and the routes are recomputed with the remaining fleet."
 
     return donations, recipients, note

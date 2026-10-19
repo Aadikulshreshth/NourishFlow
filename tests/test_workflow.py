@@ -2,10 +2,11 @@ import unittest
 
 from rescue_route.agents import run_rescue_workflow
 from rescue_route.data import demo_scenario, sample_donations, sample_recipients
-from rescue_route.optimizer import validate_plan
+from rescue_route.optimizer import optimize_allocations, validate_plan
+from rescue_route.routing import default_fleet, optimize_vehicle_routes, validate_route_plan
 
 
-class RescueRouteWorkflowTests(unittest.TestCase):
+class NourishFlowWorkflowTests(unittest.TestCase):
     def test_baseline_produces_a_valid_plan(self):
         donations, recipients, _ = demo_scenario("Baseline")
         result = run_rescue_workflow(donations, recipients)
@@ -53,6 +54,35 @@ class RescueRouteWorkflowTests(unittest.TestCase):
         result = run_rescue_workflow(donations, recipients)
         self.assertTrue(result["success"])
         self.assertLess(result["summary"]["total_allocated_kg"], result["summary"]["demand_capacity_kg"])
+
+    def test_vehicle_routes_cover_every_allocation_and_pass_route_critic(self):
+        donations, recipients, _ = demo_scenario("Baseline")
+        allocation, _ = optimize_allocations(donations, recipients)
+        routes = optimize_vehicle_routes(allocation, donations, recipients)
+        validation = validate_route_plan(routes, allocation)
+        self.assertTrue(routes["success"], routes.get("metadata", {}).get("failure_reason"))
+        self.assertTrue(validation.valid, validation.errors)
+        self.assertEqual(routes["summary"]["total_delivered_kg"], int(allocation["allocated_kg"].sum()))
+        self.assertLessEqual(routes["summary"]["max_vehicle_load_kg"], 250)
+        self.assertEqual(len(routes["stops"].query("stop_type == 'Delivery'")), len(allocation))
+
+    def test_vehicle_breakdown_replans_with_remaining_fleet(self):
+        donations, recipients, _ = demo_scenario("Vehicle breakdown / replan")
+        result = run_rescue_workflow(donations, recipients, simulate_vehicle_breakdown=True)
+        self.assertTrue(result["routing_replan"]["requested"])
+        self.assertTrue(result["routing_replan"]["success"], result["routing_replan"]["message"])
+        self.assertIsNotNone(result["routing_replan"]["broken_vehicle_id"])
+        self.assertTrue(result["routing"]["success"])
+        self.assertEqual(result["routing"]["summary"]["vehicles_available"], 2)
+        self.assertNotIn(result["routing_replan"]["broken_vehicle_id"], set(result["routing"]["stops"]["vehicle_id"]))
+        self.assertEqual(result["routing"]["summary"]["total_delivered_kg"], 485)
+
+    def test_routing_rejects_shipment_larger_than_vehicle_capacity(self):
+        donations, recipients, _ = demo_scenario("Baseline")
+        allocation, _ = optimize_allocations(donations, recipients)
+        routes = optimize_vehicle_routes(allocation, donations, recipients, vehicle_specs=default_fleet(3, 100))
+        self.assertFalse(routes["success"])
+        self.assertIn("exceeds every available vehicle capacity", routes["metadata"]["failure_reason"])
 
 
 if __name__ == "__main__":

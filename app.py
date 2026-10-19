@@ -234,11 +234,15 @@ def numeric_total(frame: pd.DataFrame, column: str, mask: pd.Series | None = Non
     return float(values.sum())
 
 
-def frame_signature(donations: pd.DataFrame, recipients: pd.DataFrame, fault: bool) -> str:
+def frame_signature(donations: pd.DataFrame, recipients: pd.DataFrame, fault: bool, scenario: str,
+                    vehicle_count: int, vehicle_capacity_kg: int) -> str:
     return "|".join([
         donations.to_csv(index=False),
         recipients.to_csv(index=False),
         str(bool(fault)),
+        str(scenario),
+        str(vehicle_count),
+        str(vehicle_capacity_kg),
     ])
 
 
@@ -262,6 +266,7 @@ SCENARIO_DESCRIPTIONS = {
     "Donation disruption": "Donation D03 is removed to simulate a source becoming unavailable before allocation.",
     "Supply shortage": "Donation quantities are reduced to 40% to demonstrate how the plan responds when there is not enough supply to meet all needs.",
     "Invalid input": "The quantity_kg field is intentionally removed so the Data Intake Agent can demonstrate schema rejection.",
+    "Vehicle breakdown / replan": "The allocation stays at baseline; the busiest vehicle is marked unavailable after the first route plan, and all routes are recomputed with the remaining fleet.",
 }
 
 # -----------------------------------------------------------------------------
@@ -278,7 +283,7 @@ with st.sidebar:
     st.markdown("### Simulation controls")
     scenario = st.selectbox(
         "Choose a scenario",
-        ["Baseline", "Time-critical food", "Donation disruption", "Supply shortage", "Invalid input"],
+        ["Baseline", "Time-critical food", "Donation disruption", "Supply shortage", "Vehicle breakdown / replan", "Invalid input"],
         help="Each scenario changes synthetic data to test a different decision path.",
     )
     inject_fault = st.checkbox(
@@ -287,6 +292,11 @@ with st.sidebar:
         help="Deliberately corrupts one candidate allocation so the Critic rejects it and the workflow tries again.",
     )
     st.caption("Fault injection is a test feature. It does not alter the optimizer's original output.")
+    with st.expander("Routing assumptions", expanded=False):
+        vehicle_count = st.slider("Available vehicles", min_value=1, max_value=5, value=3, step=1,
+                                  help="The breakdown scenario removes one vehicle from this fleet before replanning.")
+        vehicle_capacity_kg = st.slider("Capacity per vehicle (kg)", min_value=100, max_value=400, value=250, step=25,
+                                        help="Maximum food load a vehicle can carry at one time.")
     st.divider()
     st.markdown("### Bring your own data")
     donation_upload = st.file_uploader("Donations CSV", type=["csv"], key="donations", help="Upload a CSV using the required schema shown in the Data guide tab.")
@@ -319,8 +329,8 @@ st.markdown(
     <div class="rr-hero">
       <div class="rr-brandline"><span class="rr-brandmark">↗</span><span class="rr-kicker">Multi-agent decision intelligence</span></div>
       <h1>NourishFlow</h1>
-      <p>Turn surplus food into a feasible rescue plan. Allocate donations to the right community recipients using urgency, food compatibility, supply limits and delivery-time constraints—then validate every proposed allocation.</p>
-      <div class="rr-pills"><span class="rr-pill">♻ Food recovery</span><span class="rr-pill">▦ Mixed-integer optimization</span><span class="rr-pill">✓ Critic validation</span><span class="rr-pill">⚙ Synthetic demo</span></div>
+      <p>Turn surplus food into a feasible rescue plan. Allocate donations to eligible recipients, optimize pickup-and-delivery sequences under vehicle capacity and time-window constraints, then validate the plan and replan when a vehicle becomes unavailable.</p>
+      <div class="rr-pills"><span class="rr-pill">♻ Food recovery</span><span class="rr-pill">▦ Mixed-integer allocation</span><span class="rr-pill">🚚 Pickup-and-delivery routing</span><span class="rr-pill">✓ Critic + replanning</span></div>
     </div>
     """,
     unsafe_allow_html=True,
@@ -352,7 +362,7 @@ with cols[3]:
 
 st.markdown(
     f'<div class="rr-info" style="margin-top:14px;"><strong>Selected scenario:</strong> {html.escape(scenario)} — {html.escape(scenario_note)}<br>'
-    '<strong>Important:</strong> these examples use synthetic organizations, quantities and local-grid coordinates. This milestone optimizes allocations; it does not yet optimize complete multi-stop vehicle routes.</div>',
+    '<strong>Important:</strong> all organizations, quantities, depot coordinates and travel times are synthetic. Vehicle routes use straight-line distances at an assumed speed, not live road-network or traffic data.</div>',
     unsafe_allow_html=True,
 )
 
@@ -366,12 +376,18 @@ run_col, spacer_col = st.columns([1.3, 4])
 with run_col:
     run = st.button("▶  Run NourishFlow", type="primary", use_container_width=True, disabled=bool(upload_errors))
 with spacer_col:
-    st.markdown("<div style='padding:12px 0 0;color:#6a8076;font-size:13px;'>The optimizer will build feasible donor-to-recipient links, solve the allocation model, then send the result to the Critic.</div>", unsafe_allow_html=True)
+    st.markdown("<div style='padding:12px 0 0;color:#6a8076;font-size:13px;'>The workflow will optimize food allocation, plan pickup-and-delivery vehicle routes, validate both plans, and replan if the selected scenario removes a vehicle.</div>", unsafe_allow_html=True)
 
-current_signature = frame_signature(donations, recipients, inject_fault)
+current_signature = frame_signature(donations, recipients, inject_fault, scenario, vehicle_count, vehicle_capacity_kg)
 if run:
-    with st.spinner("Validating data, optimizing allocations and checking constraints…"):
-        result = run_rescue_workflow(donations.copy(), recipients.copy(), inject_critic_failure=inject_fault)
+    with st.spinner("Validating data, optimizing allocation and vehicle routes, then checking constraints…"):
+        result = run_rescue_workflow(
+            donations.copy(), recipients.copy(),
+            inject_critic_failure=inject_fault,
+            simulate_vehicle_breakdown=(scenario == "Vehicle breakdown / replan"),
+            vehicle_count=vehicle_count,
+            vehicle_capacity_kg=vehicle_capacity_kg,
+        )
     st.session_state["last_result"] = result
     st.session_state["last_signature"] = current_signature
     st.session_state["last_scenario"] = scenario
@@ -382,8 +398,9 @@ result_is_current = saved_result is not None and st.session_state.get("last_sign
 # -----------------------------------------------------------------------------
 # Main tabs
 # -----------------------------------------------------------------------------
-tab_results, tab_trace, tab_data, tab_guide = st.tabs([
+tab_results, tab_routes, tab_trace, tab_data, tab_guide = st.tabs([
     "📊  Results & impact",
+    "🚚  Vehicle routes",
     "🧭  Agent execution trace",
     "🗂️  Input data",
     "🧠  How it works",
@@ -512,6 +529,155 @@ with tab_results:
                 else:
                     st.write("No donation-recipient links were excluded by the eligibility checks.")
 
+
+with tab_routes:
+    section_heading(
+        "Logistics optimization", "Vehicle routes & disruption replanning",
+        "See the pickup-and-delivery stop order, estimated arrival time, vehicle load and what changes when a vehicle becomes unavailable.",
+    )
+    if not result_is_current:
+        st.info("Run NourishFlow to generate the allocation and its vehicle routes.")
+    elif saved_result.get("status") == "rejected":
+        st.warning("Routing did not run because the Data Intake Agent rejected the input.")
+    else:
+        result = saved_result
+        route_result = result.get("routing")
+        initial_route = result.get("initial_routing")
+        baseline_route = result.get("route_baseline")
+        replan_info = result.get("routing_replan", {})
+
+        if replan_info.get("requested"):
+            if replan_info.get("success"):
+                st.success(
+                    f"Vehicle {replan_info.get('broken_vehicle_id')} was simulated as unavailable. "
+                    "The Replanning Agent found a validated route plan using the remaining fleet."
+                )
+                before = replan_info.get("initial_summary") or {}
+                after = replan_info.get("final_summary") or {}
+                comparison_cols = st.columns(4)
+                comparison_cols[0].metric("Original distance", f"{before.get('total_distance_km', 0):,.2f} km")
+                comparison_cols[1].metric("Replanned distance", f"{after.get('total_distance_km', 0):,.2f} km")
+                comparison_cols[2].metric("Vehicles before", str(before.get("vehicles_used", 0)))
+                comparison_cols[3].metric("Vehicles after", str(after.get("vehicles_used", 0)))
+            else:
+                st.error(replan_info.get("message", "The route disruption could not be resolved automatically."))
+                if initial_route and initial_route.get("success"):
+                    st.info("The map/table below shows the last valid pre-disruption route. The revised plan was not approved.")
+
+        if route_result is None:
+            st.warning("The workflow did not produce a route result. Check the Agent execution trace for the stopping point.")
+        else:
+            display_route = route_result
+            using_previous_valid = False
+            if not route_result.get("success") and initial_route and initial_route.get("success"):
+                display_route = initial_route
+                using_previous_valid = True
+            if not display_route.get("success"):
+                st.error(display_route.get("metadata", {}).get("failure_reason", "No feasible vehicle route was found."))
+                st.markdown("**What this usually means:** a delivery window is too tight, a donor's allocated pickup exceeds the available vehicle capacity, or the remaining fleet cannot complete all shipments.")
+            else:
+                route_summary = display_route["summary"]
+                k1, k2, k3, k4 = st.columns(4)
+                with k1:
+                    metric_card("Route distance", f"{route_summary['total_distance_km']:,.2f} km", "Synthetic straight-line travel distance", "green")
+                with k2:
+                    metric_card("Vehicles used", f"{route_summary['vehicles_used']} / {route_summary['vehicles_available']}", "Vehicles with at least one pickup or delivery", "lime")
+                with k3:
+                    metric_card("Food routed", f"{route_summary['total_delivered_kg']:,} kg", "Allocated food represented by delivery tasks", "blue")
+                with k4:
+                    metric_card("Longest route", f"{route_summary['max_route_duration_hours']:.2f} h", "From hub departure to hub return", "orange")
+
+                if using_previous_valid:
+                    st.markdown('<div class="rr-warn"><strong>Showing the pre-disruption route.</strong> The revised routing attempt failed validation, so it must not be treated as an approved route.</div>', unsafe_allow_html=True)
+                route_validation = display_route.get("validation")
+                if route_validation and route_validation.valid:
+                    st.success("Route Critic approved the displayed pickup-and-delivery plan: the shipments, precedence, arrival windows and vehicle loads passed the implemented checks.")
+                    for warning in route_validation.warnings:
+                        st.warning(warning)
+                elif route_validation:
+                    for error in route_validation.errors:
+                        st.error(error)
+
+                if display_route.get("metadata", {}).get("fallback_used"):
+                    fallback_reason = display_route.get("metadata", {}).get("fallback_reason", "OR-Tools was unavailable or did not return a feasible solution.")
+                    st.warning(
+                        "This run used the transparent deadline-first greedy routing fallback, not Google OR-Tools. "
+                        "Install the project requirements to enable OR-Tools when it can be imported. " + str(fallback_reason)
+                    )
+                else:
+                    st.caption("Routing solver: " + str(display_route.get("metadata", {}).get("solver", "Not reported")))
+
+                if baseline_route and baseline_route.get("success") and initial_route and initial_route.get("success"):
+                    base_distance = float(baseline_route["summary"]["total_distance_km"])
+                    optimized_distance = float(initial_route["summary"]["total_distance_km"])
+                    distance_saved = base_distance - optimized_distance
+                    savings_pct = 100.0 * distance_saved / base_distance if base_distance > 0 else 0.0
+                    with st.expander("Compare the initial route with the greedy baseline", expanded=False):
+                        b1, b2, b3 = st.columns(3)
+                        b1.metric("Greedy baseline", f"{base_distance:.2f} km")
+                        b2.metric("Selected initial plan", f"{optimized_distance:.2f} km")
+                        b3.metric("Distance saved", f"{distance_saved:+.2f} km", f"{savings_pct:+.1f}% vs baseline")
+                        st.caption("The baseline uses the same allocations and fleet but a deadline-first greedy ordering. A shorter route is not guaranteed; the benchmark is useful for comparing behaviour on these synthetic cases. When OR-Tools is unavailable, the selected plan and baseline may use the same fallback heuristic.")
+
+                st.markdown("#### Route sequence view")
+                st.caption("Each line is one vehicle's sequence from the synthetic central hub through pickups and deliveries and back to the hub. Coordinates are not real map locations.")
+                route_chart = go.Figure()
+                palette = ["#176b50", "#db8c3e", "#4f91ad", "#8e70b3", "#c55b62"]
+                for i, (vehicle_id, group) in enumerate(display_route["stops"].groupby("vehicle_id", sort=True)):
+                    group = group.sort_values("stop_order")
+                    hover_text = [
+                        f"Vehicle: {row.vehicle_id}<br>Stop {row.stop_order}: {row.stop_type}<br>Location: {row.location_name}<br>Shipment: {row.donation_id} → {row.recipient_id}<br>Quantity: {row.quantity_kg} kg<br>Arrival: {row.arrival_hours:.2f} h<br>Load after stop: {row.load_after_kg} kg<br>Leg: {row.leg_distance_km:.2f} km"
+                        for row in group.itertuples(index=False)
+                    ]
+                    route_chart.add_trace(go.Scatter(
+                        x=group["x_km"], y=group["y_km"], mode="lines+markers+text",
+                        text=[str(int(n)) if typ not in {"Depot start", "Depot return"} else "HUB" for n, typ in zip(group["stop_order"], group["stop_type"])],
+                        textposition="top center", name=str(vehicle_id),
+                        line=dict(color=palette[i % len(palette)], width=3),
+                        marker=dict(size=10, color=palette[i % len(palette)]),
+                        customdata=hover_text, hovertemplate="%{customdata}<extra></extra>",
+                    ))
+                route_chart.update_layout(
+                    title="Synthetic pickup-and-delivery sequence by vehicle",
+                    xaxis_title="Synthetic x coordinate (km)", yaxis_title="Synthetic y coordinate (km)",
+                    height=440, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                    font=dict(color="#294b3d", size=11), margin=dict(l=10, r=10, t=45, b=10),
+                )
+                route_chart.update_xaxes(showgrid=True, gridcolor="#e6eee7", zeroline=False)
+                route_chart.update_yaxes(showgrid=True, gridcolor="#e6eee7", zeroline=False, scaleanchor="x", scaleratio=1)
+                st.plotly_chart(route_chart, use_container_width=True)
+
+                route_columns = [
+                    "vehicle_id", "stop_order", "stop_type", "location_name", "donation_id", "recipient_id",
+                    "food_type", "quantity_kg", "arrival_hours", "load_after_kg", "leg_distance_km",
+                ]
+                route_labels = {
+                    "vehicle_id": "Vehicle", "stop_order": "Order", "stop_type": "Stop type",
+                    "location_name": "Location", "donation_id": "Donation ID", "recipient_id": "Recipient ID",
+                    "food_type": "Food type", "quantity_kg": "Shipment / pickup (kg)",
+                    "arrival_hours": "Arrival (hours)", "load_after_kg": "Load after stop (kg)",
+                    "leg_distance_km": "Incoming leg (km)",
+                }
+                st.markdown("#### Detailed stop schedule")
+                st.dataframe(display_route["stops"][route_columns].rename(columns=route_labels), use_container_width=True, hide_index=True)
+                st.download_button(
+                    "↓ Download vehicle routes CSV",
+                    display_route["stops"].to_csv(index=False).encode("utf-8"),
+                    file_name="nourishflow_vehicle_routes.csv", mime="text/csv", use_container_width=False,
+                )
+
+        with st.expander("Routing model assumptions and interpretation", expanded=False):
+            st.markdown("""
+            - **Fleet:** synthetic vehicles with the capacity selected in the sidebar; default is three vehicles at 250 kg each.
+            - **Depot:** a synthetic central hub placed at the centroid of the involved donor and recipient coordinates.
+            - **Travel:** Euclidean distance in the local-grid coordinates, converted to time at 25 km/h. No real road network or live traffic is used.
+            - **Service time:** 4 minutes per shipment pickup and 3 minutes per shipment delivery.
+            - **Time windows:** delivery arrival must be no later than the smaller of the donation's remaining planning window and the recipient's delivery deadline.
+            - **Capacity:** the vehicle's simultaneous carried load cannot exceed its capacity. Each allocation row is a separate shipment whose pickup and delivery must use the same vehicle. A donor can be visited for more than one shipment, and a recipient can receive shipments from multiple vehicles.
+            - **Replanning:** the breakdown scenario removes the vehicle carrying the largest amount of food in the initial plan and recomputes routes with the remaining fleet. The food allocation itself is retained; if no feasible route remains, the workflow clearly escalates instead of claiming success.
+            - **Safety and realism:** all data and coordinates are synthetic. The result is a planning simulation, not operational dispatch or food-safety approval.
+            """)
+
 with tab_trace:
     section_heading("Transparent execution", "Agent execution trace", "Every stage records its action and outcome. Expand an entry to understand the decision made.")
     if not result_is_current:
@@ -612,19 +778,22 @@ with tab_data:
             ("allocated_kg", "Whole-kilogram quantity assigned on this donor-recipient link."),
             ("distance_km", "Euclidean distance between the synthetic coordinates."),
             ("estimated_delivery_hours", "0.25-hour handling buffer + straight-line distance / 25 km/h assumed speed."),
-            ("objective_weight", "Per-kilogram score used by the optimization objective to balance urgency, distance and shorter remaining expiry."),
+            ("objective_weight", "Per-kilogram score used by the allocation objective to balance urgency, distance and shorter remaining expiry."),
         ], columns=["Output field", "Meaning"]), use_container_width=True, hide_index=True)
 
 with tab_guide:
     section_heading("Methodology", "How the workflow works", "A step-by-step explanation of where the data goes, what each stage decides, and how the optimizer chooses an allocation.")
     workflow_steps = [
-        ("1", "Data Intake Agent · validate input", "Checks that the donations and recipients tables contain all required columns. It also checks for empty or duplicate IDs, missing/non-numeric values, non-finite numbers, negative quantities/capacities, valid urgency values and available flags. If required fields fail, the workflow stops before optimization."),
-        ("2", "Planner Agent · profile the problem", "Counts donation rows and recipients, sums donations marked available and estimates effective demand as min(requested demand, storage capacity) for each recipient. It records these values in the execution log."),
-        ("3", "Eligibility builder · create candidate links", "For every available donation-recipient pair, checks whether the recipient accepts that food. Computes straight-line distance from the synthetic coordinates and estimated delivery time = 0.25-hour handling buffer + distance / 25 km/h. It excludes links that miss the donation window or recipient deadline and records an explanation for each exclusion."),
-        ("4", "Allocation Optimizer · solve the MILP", "Each feasible donor-recipient link gets an integer decision variable measured in kg. SciPy's mixed-integer linear programming solver maximizes the sum of per-kilogram scores. The constraints prevent a donation from being overused and prevent a recipient from receiving more than the lesser of its demand and storage capacity."),
-        ("5", "Critic Agent · validate the candidate", "Checks that allocations are positive whole kilograms; donation and recipient IDs exist; supply, demand and storage limits are respected; the recipient accepts the food type; and modeled delivery time meets both the food window and the recipient deadline."),
-        ("6", "Correction Agent · retry only if rejected", "If the Critic finds a violation, the system regenerates the plan from the trusted original inputs and retries validation once. If that retry fails, the result is marked for manual review instead of being treated as accepted."),
-        ("7", "Report Agent · summarize and export", "Computes total allocated kilograms, effective demand, demand coverage and recipients served. The UI displays the allocation flow, tabular plan, exclusions, validation result and downloadable CSV files."),
+        ("1", "Data Intake Agent · validate input", "Checks required columns, unique identifiers, numeric values, ranges, urgency scores and availability flags. If required checks fail, it rejects the input before allocation or routing."),
+        ("2", "Planner Agent · profile the problem", "Counts donation and recipient rows, totals available supply, computes effective recipient demand as min(requested demand, storage capacity), and records these values in the execution log."),
+        ("3", "Eligibility builder · create candidate links", "For every available donation-recipient pair, checks food-type compatibility. It estimates straight-line travel time using a 0.25-hour handling buffer plus distance / 25 km/h, and excludes links that miss expiry or recipient deadlines."),
+        ("4", "Allocation Optimizer · solve the MILP", "Each feasible donor-recipient link receives an integer-kilogram decision variable. SciPy's mixed-integer linear programming solver maximizes the urgency-weighted score while respecting donation supply, recipient demand and storage capacity."),
+        ("5", "Allocation Critic · validate candidate", "Checks positive whole-kilogram allocations, known IDs, supply and demand limits, accepted food types, and the allocation-stage timing assumptions. A rejected plan triggers one correction retry from source data."),
+        ("6", "Vehicle Routing Agent · sequence pickups and deliveries", "Models each allocation row as a pickup-and-delivery shipment. It orders the pickup and delivery tasks using vehicle capacity and delivery time windows. Google OR-Tools is the preferred solver; an explicitly labelled deadline-first greedy fallback is used if OR-Tools cannot be loaded or returns no solution."),
+        ("7", "Route Critic · validate the vehicle plan", "Verifies each shipment has one pickup and one delivery, the delivery occurs after the pickup on the same vehicle, the time window is met, each vehicle's carried load remains within capacity, and the routes return to the synthetic hub with zero load."),
+        ("8", "Disruption and Replanning Agents · recover from vehicle failure", "In the vehicle-breakdown scenario, the busiest vehicle in the first route plan is marked unavailable. The system recomputes the routes using the remaining fleet and validates the revised plan. If no feasible plan is found, it escalates instead of claiming success."),
+        ("9", "Baseline Comparator · measure route distance", "Compares the initial route result against a deadline-first greedy route benchmark on the same allocation and fleet. This is a synthetic comparison, not an empirical claim about real delivery operations."),
+        ("10", "Report Agent · summarize and export", "Reports allocated food, demand coverage, recipients served, route distance, vehicle usage, route feasibility, execution history and downloadable CSV outputs."),
     ]
     for num, title, body in workflow_steps:
         st.markdown(f'<div class="rr-step"><div class="rr-step-head"><div class="rr-step-num">{html.escape(num)}</div><div><div class="rr-step-title">{html.escape(title)}</div><div class="rr-step-body">{html.escape(body)}</div></div></div></div>', unsafe_allow_html=True)
@@ -642,8 +811,9 @@ with tab_guide:
 
     section_heading("Assumptions and scope", "What this milestone does—and does not—claim", "Knowing the limits is important for a technically accurate viva.")
     st.markdown("""
-    <div class="rr-info"><strong>Implemented now:</strong> deterministic intake validation, eligibility filtering, mixed-integer allocation, Critic validation, one correction retry, scenario switching, execution logs and downloadable results.</div>
-    <div class="rr-warn" style="margin-top:10px;"><strong>Not implemented yet:</strong> multi-stop vehicle route optimization, live road traffic/time estimates, live location maps, real donor/recipient verification and dynamic replanning after an actual vehicle failure. Those belong in the next milestone.</div>
+    <div class="rr-info"><strong>Implemented now:</strong> deterministic intake validation, eligibility filtering, SciPy mixed-integer food allocation, allocation Critic and retry, pickup-and-delivery route planning, vehicle-capacity/time-window checks, route Critic validation, a greedy route benchmark and simulated vehicle-breakdown replanning.</div>
+    <div class="rr-warn" style="margin-top:10px;"><strong>Not implemented:</strong> live road-network routing, traffic-aware ETAs, real GPS maps, verified donor/recipient locations, actual vehicle telemetry, food-safety certification, or dispatch to real drivers. Routes use synthetic coordinates and assumed travel speed. Google OR-Tools is preferred; the app transparently reports when it uses the greedy fallback.</div>
+    <div class="rr-warn" style="margin-top:10px;"><strong>Fleet constraint:</strong> each allocation row is represented as one pickup-and-delivery shipment. A shipment must remain on one vehicle, but the same donor may be visited for different shipment rows. This avoids forcing all of one donation onto a single vehicle, although it can repeat a donor location.</div>
     <div class="rr-warn" style="margin-top:10px;"><strong>Food safety:</strong> `expiry_hours` is a simplified scenario input, not a determination that food is safe to donate or consume. Real-world use would require verified food handling, temperature, quality, regulatory and human approval checks.</div>
     """, unsafe_allow_html=True)
 
@@ -655,6 +825,6 @@ with st.expander("CSV schema and download starter datasets"):
     st.download_button("Download sample recipients CSV", sample_recipients().to_csv(index=False).encode("utf-8"), "recipients_sample.csv", "text/csv")
 
 st.markdown(
-    '<div class="rr-footer">NourishFlow · Milestone 1 · Deterministic multi-agent workflow + SciPy mixed-integer allocation optimization. Next: OR-Tools route optimization and disruption replanning.</div>',
+    '<div class="rr-footer">NourishFlow · Milestone 2 · Mixed-integer food allocation + pickup-and-delivery routing + route validation and simulated disruption replanning.</div>',
     unsafe_allow_html=True,
 )
