@@ -296,7 +296,11 @@ def _base_metadata(problem: dict[str, Any], solver_name: str, fallback_used: boo
     }
 
 
-def _optimize_with_ortools(problem: dict[str, Any], time_limit_seconds: int = 4) -> dict[str, Any]:
+def _optimize_with_ortools(
+    problem: dict[str, Any],
+    time_limit_seconds: int = 4,
+    require_each_vehicle_used: bool = False,
+) -> dict[str, Any]:
     nodes = problem["nodes"]
     vehicle_specs = problem["vehicle_specs"]
     manager = pywrapcp.RoutingIndexManager(len(nodes), len(vehicle_specs), 0)
@@ -350,6 +354,13 @@ def _optimize_with_ortools(problem: dict[str, Any], time_limit_seconds: int = 4)
         load_dimension.CumulVar(index).SetRange(0, max(capacities))
 
     solver = routing.solver()
+    if require_each_vehicle_used:
+        # The breakdown demo deliberately distributes the initial workload across
+        # the fleet so the effect of removing a vehicle is visible and testable.
+        # Outside that scenario, vehicle use remains fully optimized as usual.
+        vehicles_to_activate = min(len(problem["plan"]), len(vehicle_specs))
+        for vehicle_index in range(vehicles_to_activate):
+            solver.Add(routing.ActiveVehicleVar(vehicle_index) == 1)
     for pickup_node, delivery_node in problem["pair_nodes"]:
         pickup_index = manager.NodeToIndex(pickup_node)
         delivery_index = manager.NodeToIndex(delivery_node)
@@ -365,6 +376,7 @@ def _optimize_with_ortools(problem: dict[str, Any], time_limit_seconds: int = 4)
     solution = routing.SolveWithParameters(search_parameters)
     metadata = _base_metadata(problem, "Google OR-Tools RoutingModel", False)
     metadata["search_method"] = "Pickup-and-delivery VRP; distance objective; load and time dimensions"
+    metadata["fleet_distribution_for_breakdown_demo"] = bool(require_each_vehicle_used)
     if solution is None:
         return _route_failure("OR-Tools did not find a feasible route plan under the configured capacities and time windows.", metadata)
 
@@ -469,12 +481,17 @@ def _simulate_group(state: dict[str, Any], pickup_node: dict[str, Any], delivery
     return candidate
 
 
-def _optimize_with_greedy_fallback(problem: dict[str, Any], reason: str | None = None) -> dict[str, Any]:
+def _optimize_with_greedy_fallback(
+    problem: dict[str, Any],
+    reason: str | None = None,
+    require_each_vehicle_used: bool = False,
+) -> dict[str, Any]:
     """Deadline-first heuristic fallback; not represented as an OR-Tools result."""
     nodes = problem["nodes"]
     plan = problem["plan"]
     fleet = problem["vehicle_specs"]
     metadata = _base_metadata(problem, "Greedy fallback (OR-Tools unavailable or did not return a solution)", True)
+    metadata["fleet_distribution_for_breakdown_demo"] = bool(require_each_vehicle_used)
     if reason:
         metadata["fallback_reason"] = reason
 
@@ -506,8 +523,12 @@ def _optimize_with_greedy_fallback(problem: dict[str, Any], reason: str | None =
             "distance_km": 0.0, "events": [], "groups_assigned": 0,
         }
 
-    for group in groups:
+    for group_index, group in enumerate(groups):
         candidates: list[tuple[float, str, dict[str, Any]]] = []
+        empty_vehicle_ids = {
+            vehicle_id for vehicle_id, state in states.items()
+            if int(state["groups_assigned"]) == 0
+        }
         for vehicle in fleet:
             vehicle_id = str(vehicle["vehicle_id"])
             state = states[vehicle_id]
@@ -515,10 +536,26 @@ def _optimize_with_greedy_fallback(problem: dict[str, Any], reason: str | None =
             if candidate is None:
                 continue
             added_distance = candidate["distance_km"] - state["distance_km"]
-            # The small balancing term avoids assigning every shipment to one vehicle
-            # when two otherwise feasible choices have similar incremental distance.
+            # In the breakdown demo, seed one shipment on each vehicle first so the
+            # simulated failure has real work to redistribute. Normal runs keep the
+            # standard deadline-first heuristic and its modest balancing term.
+            if require_each_vehicle_used and empty_vehicle_ids and vehicle_id not in empty_vehicle_ids:
+                continue
             score = added_distance + 0.15 * candidate["time_min"] / 60.0 + 1.5 * state["groups_assigned"]
             candidates.append((score, vehicle_id, candidate))
+        if not candidates and require_each_vehicle_used and empty_vehicle_ids:
+            # Different capacity profiles can make an empty vehicle unsuitable for
+            # this shipment; fall back to all feasible candidates instead of failing
+            # solely because demo balancing could not be achieved.
+            for vehicle in fleet:
+                vehicle_id = str(vehicle["vehicle_id"])
+                state = states[vehicle_id]
+                candidate = _simulate_group(state, group["pickup_node"], group["delivery_nodes"], vehicle, problem)
+                if candidate is None:
+                    continue
+                added_distance = candidate["distance_km"] - state["distance_km"]
+                score = added_distance + 0.15 * candidate["time_min"] / 60.0 + 1.5 * state["groups_assigned"]
+                candidates.append((score, vehicle_id, candidate))
         if not candidates:
             return _route_failure(
                 f"Greedy fallback could not place donation {group['donation_id']} within vehicle capacity and time windows.",
@@ -550,7 +587,13 @@ def _optimize_with_greedy_fallback(problem: dict[str, Any], reason: str | None =
         "status": "feasible_fallback",
         "stops": stops,
         "summary": _summarize_routes(stops, fleet),
-        "metadata": {**metadata, "search_method": "Deadline-first pickup-and-delivery heuristic"},
+        "metadata": {
+            **metadata,
+            "search_method": (
+                "Deadline-first heuristic with fleet-distribution seeding for breakdown demo"
+                if require_each_vehicle_used else "Deadline-first pickup-and-delivery heuristic"
+            ),
+        },
         "validation": None,
     }
 
@@ -562,6 +605,7 @@ def optimize_vehicle_routes(
     vehicle_specs: list[dict[str, Any]] | None = None,
     time_limit_seconds: int = 4,
     force_greedy: bool = False,
+    require_each_vehicle_used: bool = False,
 ) -> dict[str, Any]:
     """Optimize pickup-and-delivery routes subject to load and arrival-time limits.
 
@@ -582,21 +626,45 @@ def optimize_vehicle_routes(
     except (ValueError, KeyError, IndexError, TypeError) as exc:
         return _route_failure(str(exc), {"vehicle_specs": fleet})
 
+    if require_each_vehicle_used:
+        # One shipment per active vehicle is required only for the scripted
+        # breakdown demonstration, not for ordinary routing runs.
+        problem["require_each_vehicle_used"] = True
     if force_greedy:
-        return _optimize_with_greedy_fallback(problem, reason="Greedy benchmark requested for comparison.")
+        return _optimize_with_greedy_fallback(
+            problem,
+            reason="Greedy benchmark requested for comparison.",
+            require_each_vehicle_used=require_each_vehicle_used,
+        )
     if ORTOOLS_AVAILABLE:
         try:
-            result = _optimize_with_ortools(problem, time_limit_seconds=time_limit_seconds)
+            result = _optimize_with_ortools(
+                problem,
+                time_limit_seconds=time_limit_seconds,
+                require_each_vehicle_used=require_each_vehicle_used,
+            )
             if result["success"]:
                 return result
             # Fallback is explicit in metadata; it only takes over if OR-Tools did
             # not produce a feasible plan for this small demonstration instance.
-            fallback = _optimize_with_greedy_fallback(problem, reason=result["metadata"].get("failure_reason"))
+            fallback = _optimize_with_greedy_fallback(
+                problem,
+                reason=result["metadata"].get("failure_reason"),
+                require_each_vehicle_used=require_each_vehicle_used,
+            )
             return fallback if fallback["success"] else result
         except Exception as exc:  # Keep UI usable and expose the solver issue in metadata.
-            fallback = _optimize_with_greedy_fallback(problem, reason=f"OR-Tools execution error: {type(exc).__name__}: {exc}")
+            fallback = _optimize_with_greedy_fallback(
+                problem,
+                reason=f"OR-Tools execution error: {type(exc).__name__}: {exc}",
+                require_each_vehicle_used=require_each_vehicle_used,
+            )
             return fallback
-    return _optimize_with_greedy_fallback(problem, reason="OR-Tools is not installed in this environment.")
+    return _optimize_with_greedy_fallback(
+        problem,
+        reason="OR-Tools is not installed in this environment.",
+        require_each_vehicle_used=require_each_vehicle_used,
+    )
 
 
 def validate_route_plan(route_result: dict[str, Any], plan: pd.DataFrame) -> RouteValidationResult:

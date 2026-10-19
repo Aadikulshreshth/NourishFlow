@@ -46,6 +46,6 @@ def demo_scenario(name: str) -> tuple[pd.DataFrame, pd.DataFrame, str]:
         donations = donations.drop(columns=["quantity_kg"])
         note = "The required quantity_kg column is deliberately removed. Intake validation should reject this input."
     elif name == "Vehicle breakdown / replan":
-        note = "The allocation data stays at baseline; after an initial route plan, the busiest vehicle is marked unavailable and the routes are recomputed with the remaining fleet."
+        note = "The allocation data stays at baseline. For this demonstration, the initial route assigns work across the available fleet; the busiest vehicle is then removed and the remaining vehicles re-optimize the deliveries."
 
     return donations, recipients, note

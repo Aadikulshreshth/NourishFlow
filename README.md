@@ -113,3 +113,8 @@ where `u_j` is recipient urgency (1–5), `d_ij` is straight-line donor-recipien
 ## Limitations
 
 The workflow uses deterministic Python components; the agents are not independent LLMs. SciPy solves food allocation, and OR-Tools is the preferred vehicle routing solver. Neither solver uses a real road network, traffic, live vehicle telemetry, verified organization addresses or actual food-safety records. A greedy fallback is included for environments where OR-Tools is unavailable. Real-world operation would require reliable data integration, route recalculation against a road network, food-safety procedures, privacy controls, monitoring and human approval.
+
+
+## Breakdown demonstration note
+
+For the **Vehicle breakdown / replan** scenario only, the pre-disruption route plan deliberately assigns at least one shipment to each available vehicle. This scenario setup makes the impact of a simulated vehicle failure visible and repeatable. The revised route is then re-optimized across the remaining fleet and checked by the Route Critic. Other scenarios leave vehicle-count selection to the routing optimizer. Chart titles, axes and legends use explicit dark colors for readability on the light dashboard.

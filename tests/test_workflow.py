@@ -72,9 +72,27 @@ class NourishFlowWorkflowTests(unittest.TestCase):
         self.assertTrue(result["routing_replan"]["requested"])
         self.assertTrue(result["routing_replan"]["success"], result["routing_replan"]["message"])
         self.assertIsNotNone(result["routing_replan"]["broken_vehicle_id"])
+        self.assertTrue(result["initial_routing"]["success"])
         self.assertTrue(result["routing"]["success"])
+        self.assertEqual(result["initial_routing"]["summary"]["vehicles_used"], 3)
         self.assertEqual(result["routing"]["summary"]["vehicles_available"], 2)
-        self.assertNotIn(result["routing_replan"]["broken_vehicle_id"], set(result["routing"]["stops"]["vehicle_id"]))
+        self.assertEqual(result["routing"]["summary"]["vehicles_used"], 2)
+        original_vehicle_ids = set(result["initial_routing"]["stops"]["vehicle_id"])
+        revised_vehicle_ids = set(result["routing"]["stops"]["vehicle_id"])
+        self.assertEqual(len(original_vehicle_ids), 3)
+        self.assertEqual(len(revised_vehicle_ids), 2)
+        self.assertNotIn(result["routing_replan"]["broken_vehicle_id"], revised_vehicle_ids)
+        original_pickups = result["initial_routing"]["stops"].query("stop_type == 'Pickup'")
+        revised_pickups = result["routing"]["stops"].query("stop_type == 'Pickup'")
+        original_assignments = {
+            (row.donation_id, row.recipient_id, int(row.quantity_kg)): row.vehicle_id
+            for row in original_pickups.itertuples(index=False)
+        }
+        revised_assignments = {
+            (row.donation_id, row.recipient_id, int(row.quantity_kg)): row.vehicle_id
+            for row in revised_pickups.itertuples(index=False)
+        }
+        self.assertTrue(any(original_assignments[k] != revised_assignments[k] for k in original_assignments))
         self.assertEqual(result["routing"]["summary"]["total_delivered_kg"], 485)
 
     def test_routing_rejects_shipment_larger_than_vehicle_capacity(self):

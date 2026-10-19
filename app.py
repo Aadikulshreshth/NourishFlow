@@ -279,16 +279,31 @@ def frame_signature(donations: pd.DataFrame, recipients: pd.DataFrame, fault: bo
 
 
 def plot_style(fig: go.Figure, height: int = 360) -> go.Figure:
+    """Apply a high-contrast Plotly style that remains legible on the light UI."""
     fig.update_layout(
+        template="plotly_white",
         height=height,
         paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        font=dict(family="Arial, sans-serif", color="#294b3d", size=12),
-        margin=dict(l=12, r=12, t=28, b=12),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+        plot_bgcolor="rgba(255,255,255,0.45)",
+        font=dict(family="Arial, sans-serif", color="#17352d", size=12),
+        title=dict(font=dict(color="#17352d", size=17)),
+        margin=dict(l=16, r=16, t=46, b=16),
+        legend=dict(
+            orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0,
+            font=dict(color="#294b3d", size=12),
+            bgcolor="rgba(255,255,255,0.72)",
+        ),
     )
-    fig.update_xaxes(showgrid=True, gridcolor="#e6eee7", zeroline=False, linecolor="#dce7de")
-    fig.update_yaxes(showgrid=True, gridcolor="#e6eee7", zeroline=False, linecolor="#dce7de")
+    fig.update_xaxes(
+        showgrid=True, gridcolor="#dce7de", zeroline=False, linecolor="#c4d4c8",
+        tickfont=dict(color="#38564b", size=11),
+        title_font=dict(color="#294b3d", size=12),
+    )
+    fig.update_yaxes(
+        showgrid=True, gridcolor="#dce7de", zeroline=False, linecolor="#c4d4c8",
+        tickfont=dict(color="#38564b", size=11),
+        title_font=dict(color="#294b3d", size=12),
+    )
     return fig
 
 
@@ -298,7 +313,7 @@ SCENARIO_DESCRIPTIONS = {
     "Donation disruption": "Donation D03 is removed to simulate a source becoming unavailable before allocation.",
     "Supply shortage": "Donation quantities are reduced to 40% to demonstrate how the plan responds when there is not enough supply to meet all needs.",
     "Invalid input": "The quantity_kg field is intentionally removed so the Data Intake Agent can demonstrate schema rejection.",
-    "Vehicle breakdown / replan": "The allocation stays at baseline; the busiest vehicle is marked unavailable after the first route plan, and all routes are recomputed with the remaining fleet.",
+    "Vehicle breakdown / replan": "The initial route distributes work across the available fleet for demonstration. The busiest vehicle is then marked unavailable and the remaining fleet re-optimizes the deliveries.",
 }
 
 # -----------------------------------------------------------------------------
@@ -497,15 +512,20 @@ with tab_results:
                 hover = [f"{r.donation_id} → {r.recipient_id}<br>{r.food_type}<br>{int(r.allocated_kg)} kg" for r in plan.itertuples(index=False)]
                 flow = go.Figure(data=[go.Sankey(
                     arrangement="snap",
+                    textfont=dict(color="#17352d", size=11),
                     node=dict(pad=20, thickness=17, line=dict(color="#d5e3d8", width=1), label=node_labels,
                               color=["#247455"] * len(donor_labels) + ["#9bbd58"] * len(recipient_labels)),
                     link=dict(source=source, target=target, value=values, label=hover,
                               color=["rgba(54,133,91,0.32)"] * len(values),
                               customdata=hover, hovertemplate="%{customdata}<extra></extra>"),
                 )])
-                flow.update_layout(title="Food flow · donor sources to recipient organizations", height=410,
-                                   paper_bgcolor="rgba(0,0,0,0)", font=dict(color="#294b3d", size=11),
-                                   margin=dict(l=5, r=5, t=48, b=5))
+                flow.update_layout(
+                    template="plotly_white",
+                    title=dict(text="Food flow · donor sources to recipient organizations", font=dict(color="#17352d", size=17)),
+                    height=410, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(255,255,255,0.45)",
+                    font=dict(family="Arial, sans-serif", color="#17352d", size=12),
+                    margin=dict(l=8, r=8, t=52, b=8),
+                )
                 st.plotly_chart(flow, use_container_width=True)
 
                 delivered = plan.groupby("recipient_id", as_index=False).agg(
@@ -591,6 +611,35 @@ with tab_routes:
                 comparison_cols[1].metric("Replanned distance", f"{after.get('total_distance_km', 0):,.2f} km")
                 comparison_cols[2].metric("Vehicles before", str(before.get("vehicles_used", 0)))
                 comparison_cols[3].metric("Vehicles after", str(after.get("vehicles_used", 0)))
+                if initial_route and initial_route.get("success") and route_result and route_result.get("success"):
+                    initial_pickups = initial_route["stops"].query("stop_type == 'Pickup'")[
+                        ["donation_id", "recipient_id", "quantity_kg", "vehicle_id"]
+                    ].rename(columns={"vehicle_id": "Original vehicle"})
+                    revised_pickups = route_result["stops"].query("stop_type == 'Pickup'")[
+                        ["donation_id", "recipient_id", "quantity_kg", "vehicle_id"]
+                    ].rename(columns={"vehicle_id": "Reassigned vehicle"})
+                    shipment_changes = initial_pickups.merge(
+                        revised_pickups,
+                        on=["donation_id", "recipient_id", "quantity_kg"],
+                        how="inner",
+                    )
+                    shipment_changes["Outcome"] = shipment_changes.apply(
+                        lambda row: "Reassigned" if row["Original vehicle"] != row["Reassigned vehicle"] else "Stayed on same vehicle",
+                        axis=1,
+                    )
+                    changed_count = int((shipment_changes["Outcome"] == "Reassigned").sum())
+                    st.info(
+                        f"Disruption impact: {changed_count} of {len(shipment_changes)} shipment(s) changed vehicle assignment. "
+                        f"Vehicle {replan_info.get('broken_vehicle_id')} is excluded from the revised plan."
+                    )
+                    with st.expander("See which shipments were reassigned", expanded=True):
+                        st.dataframe(
+                            shipment_changes.rename(columns={
+                                "donation_id": "Donation ID", "recipient_id": "Recipient ID", "quantity_kg": "Shipment (kg)"
+                            }),
+                            use_container_width=True,
+                            hide_index=True,
+                        )
             else:
                 st.error(replan_info.get("message", "The route disruption could not be resolved automatically."))
                 if initial_route and initial_route.get("success"):
@@ -670,13 +719,23 @@ with tab_routes:
                         customdata=hover_text, hovertemplate="%{customdata}<extra></extra>",
                     ))
                 route_chart.update_layout(
-                    title="Synthetic pickup-and-delivery sequence by vehicle",
+                    template="plotly_white",
+                    title=dict(text="Synthetic pickup-and-delivery sequence by vehicle", font=dict(color="#17352d", size=17)),
                     xaxis_title="Synthetic x coordinate (km)", yaxis_title="Synthetic y coordinate (km)",
-                    height=440, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                    font=dict(color="#294b3d", size=11), margin=dict(l=10, r=10, t=45, b=10),
+                    height=440, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(255,255,255,0.45)",
+                    font=dict(family="Arial, sans-serif", color="#17352d", size=12),
+                    legend=dict(font=dict(color="#294b3d", size=12), bgcolor="rgba(255,255,255,0.72)"),
+                    margin=dict(l=16, r=16, t=52, b=16),
                 )
-                route_chart.update_xaxes(showgrid=True, gridcolor="#e6eee7", zeroline=False)
-                route_chart.update_yaxes(showgrid=True, gridcolor="#e6eee7", zeroline=False, scaleanchor="x", scaleratio=1)
+                route_chart.update_xaxes(
+                    showgrid=True, gridcolor="#dce7de", zeroline=False, linecolor="#c4d4c8",
+                    tickfont=dict(color="#38564b", size=11), title_font=dict(color="#294b3d", size=12),
+                )
+                route_chart.update_yaxes(
+                    showgrid=True, gridcolor="#dce7de", zeroline=False, linecolor="#c4d4c8",
+                    tickfont=dict(color="#38564b", size=11), title_font=dict(color="#294b3d", size=12),
+                    scaleanchor="x", scaleratio=1,
+                )
                 st.plotly_chart(route_chart, use_container_width=True)
 
                 route_columns = [

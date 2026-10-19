@@ -66,7 +66,13 @@ def _run_routing_stages(
         "INFO",
         vehicle_specs=fleet,
     )
-    initial_routing = optimize_vehicle_routes(plan, donations, recipients, vehicle_specs=fleet)
+    # In the breakdown scenario, distribute the pre-disruption plan across the
+    # fleet to ensure the fault affects real scheduled work. Normal runs allow the
+    # solver to choose the number of vehicles freely.
+    initial_routing = optimize_vehicle_routes(
+        plan, donations, recipients, vehicle_specs=fleet,
+        require_each_vehicle_used=simulate_vehicle_breakdown and len(fleet) > 1,
+    )
     initial_validation = validate_route_plan(initial_routing, plan)
     route_baseline = optimize_vehicle_routes(plan, donations, recipients, vehicle_specs=fleet, force_greedy=True)
     route_baseline["validation"] = validate_route_plan(route_baseline, plan)
@@ -145,10 +151,14 @@ def _run_routing_stages(
         logs,
         "Replanning Agent",
         "Re-solve all pickup-and-delivery routes with the remaining fleet.",
-        f"The allocation plan is retained, but all vehicle routes are recomputed using {len(available_fleet)} available vehicle(s).",
+        f"The allocation plan is retained, but all vehicle routes are recomputed using {len(available_fleet)} available vehicle(s). "
+        + ("For this demonstration, remaining vehicles are both assigned work so the redistribution is visible." if len(available_fleet) > 1 else "Only one vehicle remains available."),
         "INFO",
     )
-    replanned = optimize_vehicle_routes(plan, donations, recipients, vehicle_specs=available_fleet)
+    replanned = optimize_vehicle_routes(
+        plan, donations, recipients, vehicle_specs=available_fleet,
+        require_each_vehicle_used=len(available_fleet) > 1,
+    )
     replanned_validation = validate_route_plan(replanned, plan)
     replanned["validation"] = replanned_validation
     replanned["metadata"]["replanned_after_breakdown"] = True
