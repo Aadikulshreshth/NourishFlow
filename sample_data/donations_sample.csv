@@ -1,0 +1,6 @@
+donation_id,donor_name,food_type,quantity_kg,expiry_hours,x_km,y_km,available
+D01,GreenBasket Market,Produce,120,6.0,2.0,4.0,True
+D02,DailyDairy Cooperative,Dairy,70,3.0,8.0,3.0,True
+D03,GrainShare Warehouse,Grains,160,72.0,3.0,9.0,True
+D04,City Canteen,Prepared meals,55,2.5,7.0,8.0,True
+D05,FarmLink Cooperative,Produce,90,12.0,10.0,6.0,True

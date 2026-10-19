@@ -1,0 +1,6 @@
+recipient_id,recipient_name,demand_kg,storage_capacity_kg,urgency,delivery_deadline_hours,accepts_food_types,x_km,y_km
+R01,Hope Community Kitchen,110,120,5,4.0,Produce|Grains|Prepared meals,3.0,3.0
+R02,Sunrise Shelter,80,90,4,5.0,Produce|Dairy|Grains|Prepared meals,8.0,5.0
+R03,Community Support Hub,140,160,3,12.0,Produce|Grains,4.0,10.0
+R04,Night Relief Centre,65,70,5,2.0,Produce|Dairy|Prepared meals,7.0,9.0
+R05,Youth Support Centre,90,95,2,10.0,Produce|Dairy|Grains,11.0,7.0
