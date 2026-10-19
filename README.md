@@ -1,8 +1,8 @@
-# RescueRoute
+# NourishFlow
 
 **A Multi-Agent Food Rescue and Allocation Optimization System**
 
-RescueRoute is a student proof of concept for coordinating surplus food donations with community recipients. It allocates eligible food under supply, demand, storage, food-type compatibility, urgency, expiry-window and recipient-deadline constraints. The Streamlit dashboard is designed to be explainable and testable, with synthetic data, a visual allocation-flow chart, execution traces and downloadable outputs.
+NourishFlow is a student proof of concept for coordinating surplus food donations with community recipients. It allocates eligible food under supply, demand, storage, food-type compatibility, urgency, expiry-window and recipient-deadline constraints. The Streamlit dashboard is designed to be explainable and testable, with synthetic data, a visual allocation-flow chart, execution traces and downloadable outputs.
 
 > **Safety scope:** The sample organizations, quantities and coordinates are synthetic. This is not an operational food-safety, dispatch, or donor/recipient verification system. Qualified people must verify food safety, handling conditions, eligibility and real delivery decisions.
 

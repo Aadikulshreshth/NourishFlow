@@ -13,7 +13,7 @@ from rescue_route.data import demo_scenario, sample_donations, sample_recipients
 from rescue_route.optimizer import validate_inputs
 
 st.set_page_config(
-    page_title="RescueRoute | Food Rescue Optimizer",
+    page_title="NourishFlow | Food Redistribution Optimizer",
     page_icon="♻️",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -270,9 +270,9 @@ SCENARIO_DESCRIPTIONS = {
 with st.sidebar:
     st.markdown(
         '<div style="display:flex;align-items:center;gap:10px;margin:4px 0 20px;">'
-        '<div style="width:38px;height:38px;border-radius:12px;background:#d5ed8a;color:#133d30;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:19px;">R</div>'
-        '<div><div style="font-weight:850;font-size:18px;color:#f5fff6;">RescueRoute</div>'
-        '<div style="font-size:11px;color:#b9d4c5;letter-spacing:.04em;">FOOD RESCUE OPTIMIZER</div></div></div>',
+        '<div style="width:38px;height:38px;border-radius:12px;background:#d5ed8a;color:#133d30;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:19px;">N</div>'
+        '<div><div style="font-weight:850;font-size:18px;color:#f5fff6;">NourishFlow</div>'
+        '<div style="font-size:11px;color:#b9d4c5;letter-spacing:.04em;">FOOD REDISTRIBUTION OPTIMIZER</div></div></div>',
         unsafe_allow_html=True,
     )
     st.markdown("### Simulation controls")
@@ -318,7 +318,7 @@ st.markdown(
     """
     <div class="rr-hero">
       <div class="rr-brandline"><span class="rr-brandmark">↗</span><span class="rr-kicker">Multi-agent decision intelligence</span></div>
-      <h1>RescueRoute</h1>
+      <h1>NourishFlow</h1>
       <p>Turn surplus food into a feasible rescue plan. Allocate donations to the right community recipients using urgency, food compatibility, supply limits and delivery-time constraints—then validate every proposed allocation.</p>
       <div class="rr-pills"><span class="rr-pill">♻ Food recovery</span><span class="rr-pill">▦ Mixed-integer optimization</span><span class="rr-pill">✓ Critic validation</span><span class="rr-pill">⚙ Synthetic demo</span></div>
     </div>
@@ -364,7 +364,7 @@ else:
 
 run_col, spacer_col = st.columns([1.3, 4])
 with run_col:
-    run = st.button("▶  Run RescueRoute", type="primary", use_container_width=True, disabled=bool(upload_errors))
+    run = st.button("▶  Run NourishFlow", type="primary", use_container_width=True, disabled=bool(upload_errors))
 with spacer_col:
     st.markdown("<div style='padding:12px 0 0;color:#6a8076;font-size:13px;'>The optimizer will build feasible donor-to-recipient links, solve the allocation model, then send the result to the Critic.</div>", unsafe_allow_html=True)
 
@@ -393,7 +393,7 @@ with tab_results:
     section_heading("Optimization output", "Allocation results", "Understand how much food can be assigned, which recipients are served, and whether the plan passes validation.")
     if not result_is_current:
         st.markdown(
-            '<div class="rr-warn"><strong>No current result yet.</strong> Select a scenario in the sidebar and click <em>Run RescueRoute</em>. If you change the scenario, uploaded data or Critic toggle, run it again so the displayed result matches those inputs.</div>',
+            '<div class="rr-warn"><strong>No current result yet.</strong> Select a scenario in the sidebar and click <em>Run NourishFlow</em>. If you change the scenario, uploaded data or Critic toggle, run it again so the displayed result matches those inputs.</div>',
             unsafe_allow_html=True,
         )
         st.markdown("#### What you will see here")
@@ -482,7 +482,7 @@ with tab_results:
                     st.download_button(
                         "↓ Download allocation CSV",
                         plan.to_csv(index=False).encode("utf-8"),
-                        file_name="rescueroute_allocation_plan.csv",
+                        file_name="nourishflow_allocation_plan.csv",
                         mime="text/csv",
                         use_container_width=True,
                     )
@@ -534,7 +534,7 @@ with tab_trace:
                     st.json(entry.details)
         log_rows = [{"Stage": entry.stage, "Action": entry.action, "Result": entry.result, "Status": entry.status} for entry in logs]
         log_frame = pd.DataFrame(log_rows)
-        st.download_button("↓ Download execution log CSV", log_frame.to_csv(index=False).encode("utf-8"), "rescueroute_execution_log.csv", "text/csv")
+        st.download_button("↓ Download execution log CSV", log_frame.to_csv(index=False).encode("utf-8"), "nourishflow_execution_log.csv", "text/csv")
 
         section_heading("What the agents mean", "Roles in this milestone", "These are deterministic Python agents/components, not LLM-driven autonomous agents.")
         role_data = [
@@ -655,6 +655,6 @@ with st.expander("CSV schema and download starter datasets"):
     st.download_button("Download sample recipients CSV", sample_recipients().to_csv(index=False).encode("utf-8"), "recipients_sample.csv", "text/csv")
 
 st.markdown(
-    '<div class="rr-footer">RescueRoute · Milestone 1 · Deterministic multi-agent workflow + SciPy mixed-integer allocation optimization. Next: OR-Tools route optimization and disruption replanning.</div>',
+    '<div class="rr-footer">NourishFlow · Milestone 1 · Deterministic multi-agent workflow + SciPy mixed-integer allocation optimization. Next: OR-Tools route optimization and disruption replanning.</div>',
     unsafe_allow_html=True,
 )
