@@ -2,6 +2,17 @@
 
 **A Multi-Agent Food Redistribution and Logistics Optimization System**
 
+<p align="left">
+  <a href="https://www.python.org/"><img alt="Python 3" src="https://img.shields.io/badge/Python-3.x-3776AB?logo=python&logoColor=white"></a>
+  <a href="https://streamlit.io/"><img alt="Streamlit" src="https://img.shields.io/badge/Streamlit-Dashboard-FF4B4B?logo=streamlit&logoColor=white"></a>
+  <a href="https://scipy.org/"><img alt="SciPy MILP" src="https://img.shields.io/badge/SciPy-MILP%20Optimization-8CAAE6?logo=scipy&logoColor=white"></a>
+  <a href="https://developers.google.com/optimization"><img alt="Google OR-Tools" src="https://img.shields.io/badge/Google%20OR--Tools-Vehicle%20Routing-4285F4?logo=google&logoColor=white"></a>
+  <a href="https://plotly.com/"><img alt="Plotly" src="https://img.shields.io/badge/Plotly-Visualizations-3F4F75?logo=plotly&logoColor=white"></a>
+  <img alt="Project status" src="https://img.shields.io/badge/Status-Academic%20Prototype-238636">
+  <img alt="Dataset" src="https://img.shields.io/badge/Data-Synthetic-orange">
+</p>
+
+
 NourishFlow is a student proof of concept for coordinating surplus food donations with community recipients. It combines a mixed-integer allocation model with pickup-and-delivery vehicle routing, explicit validation, and simulated disruption recovery.
 
 > **Safety scope:** The sample organizations, quantities, coordinates, fleet and travel times are synthetic. This is not an operational food-safety, dispatch, donor/recipient verification, or road-navigation system. Qualified people must verify food quality, handling conditions, eligibility and real delivery decisions.
