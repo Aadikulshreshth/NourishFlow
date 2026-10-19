@@ -77,11 +77,27 @@ st.markdown(
         min-height: 2.7rem;
         transition: transform .15s ease, box-shadow .15s ease;
     }
-    [data-testid="stButton"] button[kind="primary"] {
-        background: linear-gradient(135deg, #187653 0%, #0f4b3b 100%);
-        border: 0;
-        color: #fff;
+    [data-testid="stButton"] button[kind="primary"],
+    [data-testid="stButton"] button[data-testid="stBaseButton-primary"],
+    .stButton > button[kind="primary"] {
+        background: linear-gradient(135deg, #187653 0%, #0f4b3b 100%) !important;
+        border: 0 !important;
+        color: #ffffff !important;
+        -webkit-text-fill-color: #ffffff !important;
+        opacity: 1 !important;
         box-shadow: 0 7px 16px rgba(23,107,80,.18);
+    }
+    /* Streamlit renders button labels inside child elements (often a <p>).
+       The page-wide p color above otherwise overrides the button's white text. */
+    [data-testid="stButton"] button[kind="primary"] *,
+    [data-testid="stButton"] button[data-testid="stBaseButton-primary"] *,
+    .stButton > button[kind="primary"] *,
+    [data-testid="stButton"] button[kind="primary"] p,
+    [data-testid="stButton"] button[data-testid="stBaseButton-primary"] p,
+    .stButton > button[kind="primary"] p {
+        color: #ffffff !important;
+        -webkit-text-fill-color: #ffffff !important;
+        opacity: 1 !important;
     }
     [data-testid="stButton"] button:hover, [data-testid="stDownloadButton"] button:hover {
         transform: translateY(-1px);
