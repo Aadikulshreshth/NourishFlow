@@ -53,6 +53,38 @@ st.markdown(
         border: 1px dashed rgba(230,245,234,.42);
     }
     [data-testid="stSidebar"] [data-testid="stFileUploaderDropzone"] * { color: #f0f7f1; }
+    /* Sidebar expanders need a dark surface because sidebar text is light. */
+    [data-testid="stSidebar"] [data-testid="stExpander"] {
+        background: rgba(255,255,255,.035) !important;
+        border: 1px solid rgba(213,237,138,.32) !important;
+        border-radius: 12px !important;
+        overflow: hidden;
+    }
+    [data-testid="stSidebar"] [data-testid="stExpander"] details > summary {
+        background: rgba(255,255,255,.07) !important;
+        color: #f0f7f1 !important;
+        border-radius: 11px !important;
+        transition: background .15s ease, border-color .15s ease;
+    }
+    [data-testid="stSidebar"] [data-testid="stExpander"] details > summary:hover {
+        background: rgba(213,237,138,.13) !important;
+    }
+    [data-testid="stSidebar"] [data-testid="stExpander"] details[open] > summary {
+        background: rgba(213,237,138,.10) !important;
+        border-bottom: 1px solid rgba(213,237,138,.22) !important;
+        border-radius: 11px 11px 0 0 !important;
+    }
+    [data-testid="stSidebar"] [data-testid="stExpander"] details > summary *,
+    [data-testid="stSidebar"] [data-testid="stExpander"] details > summary p,
+    [data-testid="stSidebar"] [data-testid="stExpander"] details > summary span {
+        color: #f0f7f1 !important;
+        -webkit-text-fill-color: #f0f7f1 !important;
+        opacity: 1 !important;
+    }
+    [data-testid="stSidebar"] [data-testid="stExpander"] details > summary svg {
+        color: #d5ed8a !important;
+        fill: #d5ed8a !important;
+    }
     [data-testid="stSidebar"] [data-testid="stSelectbox"] label,
     [data-testid="stSidebar"] [data-testid="stCheckbox"] label,
     [data-testid="stSidebar"] [data-testid="stFileUploader"] label {
